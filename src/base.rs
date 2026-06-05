@@ -9,6 +9,7 @@ pub fn init(){
     let init_folders = vec![
         ".git",
         ".git/objects",
+        ".git/refs",
         ".git/refs/heads",
         ".git/refs/tags"
     ];

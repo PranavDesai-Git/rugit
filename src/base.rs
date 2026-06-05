@@ -3,6 +3,7 @@ use std::io::Write;
 use sha1::{Sha1,Digest};
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
+use hex::encode;
 
 pub fn init(){
     let init_folders = vec![
@@ -50,11 +51,7 @@ pub fn hash_objects(filepath: &str) -> std::io::Result<String> {
 
     let hashed_blob = Sha1::digest(&blob);
 
-    let hash_hex = hashed_blob
-    .iter()
-    .map(|byte| format!("{:02x}", byte))
-    .collect::<String>();
-
+    let hash_hex = encode(hashed_blob);
     let (dir_part, file_part) = hash_hex.split_at(2);
     let target_dir = format!(".git/objects/{}", dir_part);
     let target_file = format!("{}/{}", target_dir, file_part);

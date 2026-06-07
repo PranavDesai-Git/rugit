@@ -4,6 +4,8 @@ use sha1::{Sha1,Digest};
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use hex::encode;
+use std::time::UNIX_EPOCH;
+use std::io;
 
 pub fn init(){
     let init_folders = vec![

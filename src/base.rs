@@ -42,7 +42,7 @@ pub fn init(){
     log::info!("git initialized");
 }
 
-pub fn hash_object(filepath: &str) -> std::io::Result<String> {
+pub fn hash_object(filepath: &str) -> std::io::Result<[u8;20]> {
     let file_content = fs::read(filepath)?;
     let file_size = file_content.len();
 
@@ -52,6 +52,7 @@ pub fn hash_object(filepath: &str) -> std::io::Result<String> {
 
     let hashed_blob = Sha1::digest(&blob);
 
+    let hashed_bytes: [u8; 20] = hashed_blob.into();
     let hash_hex = encode(hashed_blob);
     let (dir_part, file_part) = hash_hex.split_at(2);
     let target_dir = format!(".git/objects/{}", dir_part);

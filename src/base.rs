@@ -138,6 +138,28 @@ impl IndexEntry{
 
         Ok(entry)
     }
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&self.ctime_secs.to_be_bytes());
+        bytes.extend_from_slice(&self.ctime_nanos.to_be_bytes());
+        bytes.extend_from_slice(&self.mtime_secs.to_be_bytes());
+        bytes.extend_from_slice(&self.mtime_nanos.to_be_bytes());
+        bytes.extend_from_slice(&self.dev.to_be_bytes());
+        bytes.extend_from_slice(&self.ino.to_be_bytes());
+        bytes.extend_from_slice(&self.mode.to_be_bytes());
+        bytes.extend_from_slice(&self.uid.to_be_bytes());
+        bytes.extend_from_slice(&self.gid.to_be_bytes());
+        bytes.extend_from_slice(&self.file_size.to_be_bytes());
+        bytes.extend_from_slice(&self.sha1);
+        bytes.extend_from_slice(&self.flags.to_be_bytes());
+        bytes.extend_from_slice(self.filepath.as_bytes());
+        //padding
+        bytes.push(0);
+        let padding = (8 - (bytes.len() % 8)) % 8;
+        bytes.extend(std::iter::repeat(0).take(padding));
+
+        bytes
+    }
 }
 
 pub fn stage_file(filepath: &str){

@@ -127,7 +127,7 @@ impl IndexEntry{
             entry.uid = 0;
             entry.gid = 0;
             
-            entry.mode = if metadata.permissions().readonly() { 0o100644 } else { 0o100755 }; 
+            entry.mode = if metadata.permissions().readonly() { 0o100755 } else { 0o100644 }; 
         }
         entry.sha1 = hash_object(filepath)?;
         let path_len = std::cmp::min(filepath.len(), 0xFFF) as u16;

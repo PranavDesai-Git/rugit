@@ -65,7 +65,77 @@ pub fn hash_object(filepath: &str) -> std::io::Result<[u8;20]> {
     encoder.write_all(&blob)?;
     encoder.finish()?;
 
-    Ok(hash_hex)
+    Ok(hashed_bytes)
+}
+
+#[derive(Debug,Default)]
+pub struct IndexEntry {
+    pub ctime_secs: u32,
+    pub ctime_nanos: u32,
+    pub mtime_secs: u32,
+    pub mtime_nanos: u32,
+    pub dev: u32,
+    pub ino: u32,
+    pub mode: u32,
+    pub uid: u32,
+    pub gid: u32,
+    pub file_size: u32,
+    pub sha1: [u8; 20],
+    pub flags: u16,
+    pub filepath: String,
+}
+
+impl IndexEntry{
+    pub fn from_file(filepath: &str) -> Result<Self, io::Error>{
+        let metadata = fs::metadata(filepath)?;
+        let mut entry = IndexEntry::default();
+        if let Ok(ctime) = metadata.created() {
+            if let Ok(duration) = ctime.duration_since(UNIX_EPOCH) {
+                entry.ctime_secs = duration.as_secs() as u32;
+                entry.ctime_nanos = duration.subsec_nanos();
+            }
+        }
+        if let Ok(mtime) = metadata.modified() {
+            if let Ok(duration) = mtime.duration_since(UNIX_EPOCH) {
+                entry.mtime_secs = duration.as_secs() as u32;
+                entry.mtime_nanos = duration.subsec_nanos();
+            }
+        }
+
+        entry.file_size = std::cmp::min(metadata.len(), u32::MAX as u64) as u32;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{MetadataExt, PermissionsExt};
+            entry.dev = metadata.dev() as u32;
+            entry.ino = metadata.ino() as u32;
+            entry.uid = metadata.uid();
+            entry.gid = metadata.gid();
+            
+            let unix_mode = metadata.permissions().mode();
+            entry.mode = if unix_mode & 0o111 != 0 { 0o100755 } else { 0o100644 };
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            if let Some(sn) = metadata.volume_serial_number() {
+                entry.dev = sn;
+            }
+            if let Some(fi) = metadata.file_index() {
+                entry.ino = fi as u32;
+            }
+            entry.uid = 0;
+            entry.gid = 0;
+            
+            entry.mode = if metadata.permissions().readonly() { 0o100644 } else { 0o100755 }; 
+        }
+        entry.sha1 = hash_object(filepath)?;
+        let path_len = std::cmp::min(filepath.len(), 0xFFF) as u16;
+        entry.flags = path_len;
+        entry.filepath = filepath.to_string();
+
+        Ok(entry)
+    }
 }
 
 pub fn stage_file(filepath: &str){

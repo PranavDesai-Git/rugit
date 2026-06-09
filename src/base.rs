@@ -1,12 +1,13 @@
-use byteorder::{BigEndian, ReadBytesExt};
-use flate2::write::ZlibEncoder;
 use flate2::Compression;
+use flate2::write::ZlibEncoder;
 use hex::encode;
 use sha1::{Digest, Sha1};
 use std::fs;
 use std::io;
+use std::io::Read;
 use std::io::Write;
 use std::time::UNIX_EPOCH;
+use std::collections::BTreeMap;
 
 pub fn init() {
     let init_folders = vec![
@@ -167,7 +168,7 @@ impl IndexEntry {
         bytes.extend_from_slice(&self.flags.to_be_bytes());
         bytes.extend_from_slice(self.filepath.as_bytes());
 
-        // Git alignment padding rule: 1-8 null bytes to pad the total 
+        // Git alignment padding rule: 1-8 null bytes to pad the total
         // entry size (62 bytes fixed fields + path length) to a multiple of 8.
         let entry_len_without_padding = 62 + self.filepath.len();
         let mut padding = 1;
@@ -192,12 +193,15 @@ pub fn read_index() -> io::Result<Vec<IndexEntry>> {
 
     // Verify signature "DIRC"
     if &header[0..4] != b"DIRC" {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid index signature"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Invalid index signature",
+        ));
     }
 
     let _version = u32::from_be_bytes(header[4..8].try_into().unwrap());
     let entry_count = u32::from_be_bytes(header[8..12].try_into().unwrap());
-    
+
     let mut entries = Vec::new();
 
     for _ in 0..entry_count {
@@ -215,10 +219,10 @@ pub fn read_index() -> io::Result<Vec<IndexEntry>> {
         let uid = u32::from_be_bytes(fixed_fields[28..32].try_into().unwrap());
         let gid = u32::from_be_bytes(fixed_fields[32..36].try_into().unwrap());
         let file_size = u32::from_be_bytes(fixed_fields[36..40].try_into().unwrap());
-        
+
         let mut sha1 = [0u8; 20];
         sha1.copy_from_slice(&fixed_fields[40..60]);
-        
+
         let flags = u16::from_be_bytes(fixed_fields[60..62].try_into().unwrap());
         let path_len = (flags & 0x0FFF) as usize;
 
@@ -228,7 +232,7 @@ pub fn read_index() -> io::Result<Vec<IndexEntry>> {
 
         // FIXED: Padding logic matches serialize() relative to entry start
         let entry_len_without_padding = 62 + path_len;
-        let mut padding_len = 1; 
+        let mut padding_len = 1;
         while (entry_len_without_padding + padding_len) % 8 != 0 {
             padding_len += 1;
         }
@@ -236,8 +240,19 @@ pub fn read_index() -> io::Result<Vec<IndexEntry>> {
         file.read_exact(&mut padding_buf)?;
 
         entries.push(IndexEntry {
-            ctime_secs, ctime_nanos, mtime_secs, mtime_nanos,
-            dev, ino, mode, uid, gid, file_size, sha1, flags, filepath
+            ctime_secs,
+            ctime_nanos,
+            mtime_secs,
+            mtime_nanos,
+            dev,
+            ino,
+            mode,
+            uid,
+            gid,
+            file_size,
+            sha1,
+            flags,
+            filepath,
         });
     }
 
@@ -247,17 +262,14 @@ pub fn read_index() -> io::Result<Vec<IndexEntry>> {
 pub fn write_index(entries: &[IndexEntry]) -> io::Result<()> {
     let mut index_content = Vec::new();
 
-    // 1. Header: Signature (4B), Version (4B), Entry Count (4B)
     index_content.extend_from_slice(b"DIRC");
     index_content.extend_from_slice(&2u32.to_be_bytes());
     index_content.extend_from_slice(&(entries.len() as u32).to_be_bytes());
 
-    // 2. Entries
     for entry in entries {
         index_content.extend(entry.serialize());
     }
 
-    // 3. Checksum: SHA-1 of everything written so far
     let checksum = Sha1::digest(&index_content);
     index_content.extend_from_slice(&checksum);
 
@@ -277,4 +289,131 @@ pub fn stage_file(filepath: &str) -> io::Result<()> {
 
     log::info!("Staged {}", filepath);
     Ok(())
+}
+
+enum TreeNode {
+    Blob([u8; 20], u32),
+    Tree(BTreeMap<String, TreeNode>),
+}
+
+pub fn write_tree() -> io::Result<[u8; 20]> {
+    let entries = read_index()?;
+    let mut root = BTreeMap::new();
+
+    for entry in entries {
+        let parts: Vec<&str> = entry.filepath.split('/').collect();
+        insert_into_tree(&mut root, &parts, entry.sha1, entry.mode);
+    }
+
+    write_tree_node(&TreeNode::Tree(root))
+}
+
+fn insert_into_tree(current: &mut BTreeMap<String, TreeNode>, parts: &[&str], sha1: [u8; 20], mode: u32) {
+    if parts.is_empty() {
+        return;
+    }
+    let name = parts[0].to_string();
+    if parts.len() == 1 {
+        current.insert(name, TreeNode::Blob(sha1, mode));
+    } else {
+        let next_node = current
+            .entry(name)
+            .or_insert_with(|| TreeNode::Tree(BTreeMap::new()));
+        if let TreeNode::Tree(ref mut next_tree) = next_node {
+            insert_into_tree(next_tree, &parts[1..], sha1, mode);
+        }
+    }
+}
+
+fn write_tree_node(node: &TreeNode) -> io::Result<[u8; 20]> {
+    match node {
+        TreeNode::Blob(sha1, _) => Ok(*sha1),
+        TreeNode::Tree(children) => {
+            let mut tree_body = Vec::new();
+
+            for (name, child) in children {
+                let child_sha1 = write_tree_node(child)?;
+                let mode_str = match child {
+                    TreeNode::Blob(_, mode) => format!("{:o}", mode),
+                    TreeNode::Tree(_) => "40000".to_string(),
+                };
+                
+                write!(tree_body, "{} {}", mode_str, name)?;
+                tree_body.push(0);
+                tree_body.extend_from_slice(&child_sha1);
+            }
+
+            let mut tree_object = Vec::new();
+            write!(tree_object, "tree {}\0", tree_body.len())?;
+            tree_object.extend_from_slice(&tree_body);
+
+            let hashed_bytes = hash_and_store_object(&tree_object)?;
+            Ok(hashed_bytes)
+        }
+    }
+}
+
+fn hash_and_store_object(object_content: &[u8]) -> io::Result<[u8; 20]> {
+    let hashed_blob = Sha1::digest(object_content);
+    let hashed_bytes: [u8; 20] = hashed_blob.into();
+    let hash_hex = encode(hashed_blob);
+    
+    let (dir_part, file_part) = hash_hex.split_at(2);
+    let target_dir = format!(".git/objects/{}", dir_part);
+    let target_file = format!("{}/{}", target_dir, file_part);
+
+    fs::create_dir_all(&target_dir)?;
+    let object_file = fs::File::create(target_file)?;
+    let mut encoder = ZlibEncoder::new(object_file, Compression::default());
+    encoder.write_all(object_content)?;
+    encoder.finish()?;
+
+    Ok(hashed_bytes)
+}
+
+
+pub fn commit(message: &str, author: &str, email: &str) -> io::Result<[u8; 20]> {
+    let tree_sha1 = write_tree()?;
+    let tree_hex = encode(tree_sha1);
+
+    let mut parent_hex = String::new();
+    if let Ok(head_content) = fs::read_to_string(".git/HEAD") {
+        let ref_path = head_content.trim().trim_start_matches("ref: ").to_string();
+        let full_ref_path = format!(".git/{}", ref_path);
+        if let Ok(parent_sha) = fs::read_to_string(full_ref_path) {
+            parent_hex = parent_sha.trim().to_string();
+        }
+    }
+
+    let mut commit_body = Vec::new();
+    writeln!(commit_body, "tree {}", tree_hex)?;
+    if !parent_hex.is_empty() {
+        writeln!(commit_body, "parent {}", parent_hex)?;
+    }
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    
+    writeln!(commit_body, "author {} <{}> {} +0000", author, email, timestamp)?;
+    writeln!(commit_body, "committer {} <{}> {} +0000", author, email, timestamp)?;
+    writeln!(commit_body)?;
+    writeln!(commit_body, "{}", message)?;
+
+    let mut commit_object = Vec::new();
+    write!(commit_object, "commit {}\0", commit_body.len())?;
+    commit_object.extend_from_slice(&commit_body);
+
+    let commit_sha1 = hash_and_store_object(&commit_object)?;
+    let commit_hex = encode(commit_sha1);
+
+    if let Ok(head_content) = fs::read_to_string(".git/HEAD") {
+        let ref_path = head_content.trim().trim_start_matches("ref: ").to_string();
+        let full_ref_path = format!(".git/{}", ref_path);
+        fs::write(full_ref_path, format!("{}\n", commit_hex))?;
+    }
+
+    log::info!("Committed successfully: {}", commit_hex);
+    Ok(commit_sha1)
 }

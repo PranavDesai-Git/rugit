@@ -184,7 +184,7 @@ impl IndexEntry {
 pub fn read_index() -> io::Result<Vec<IndexEntry>> {
     let index_path = ".git/index";
     if !std::path::Path::new(index_path).exists() {
-        return Ok(Vec::new()); 
+        return Ok(Vec::new());
     }
 
     let mut file = fs::File::open(index_path)?;

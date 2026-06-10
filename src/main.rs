@@ -1,3 +1,4 @@
+#![feature(windows_by_handle)]
 pub mod base;
 pub mod cli;
 

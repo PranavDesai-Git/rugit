@@ -2,12 +2,12 @@ use flate2::Compression;
 use flate2::write::ZlibEncoder;
 use hex::encode;
 use sha1::{Digest, Sha1};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::time::UNIX_EPOCH;
-use std::collections::BTreeMap;
 
 pub fn init() {
     let init_folders = vec![
@@ -184,14 +184,13 @@ impl IndexEntry {
 pub fn read_index() -> io::Result<Vec<IndexEntry>> {
     let index_path = ".git/index";
     if !std::path::Path::new(index_path).exists() {
-        return Ok(Vec::new()); // No index yet, return empty list
+        return Ok(Vec::new()); 
     }
 
     let mut file = fs::File::open(index_path)?;
     let mut header = [0u8; 12];
     file.read_exact(&mut header)?;
 
-    // Verify signature "DIRC"
     if &header[0..4] != b"DIRC" {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -205,7 +204,6 @@ pub fn read_index() -> io::Result<Vec<IndexEntry>> {
     let mut entries = Vec::new();
 
     for _ in 0..entry_count {
-        // Read fixed fields (62 bytes total before filepath)
         let mut fixed_fields = [0u8; 62];
         file.read_exact(&mut fixed_fields)?;
 
@@ -230,7 +228,6 @@ pub fn read_index() -> io::Result<Vec<IndexEntry>> {
         file.read_exact(&mut path_bytes)?;
         let filepath = String::from_utf8_lossy(&path_bytes).into_owned();
 
-        // FIXED: Padding logic matches serialize() relative to entry start
         let entry_len_without_padding = 62 + path_len;
         let mut padding_len = 1;
         while (entry_len_without_padding + padding_len) % 8 != 0 {
@@ -308,7 +305,12 @@ pub fn write_tree() -> io::Result<[u8; 20]> {
     write_tree_node(&TreeNode::Tree(root))
 }
 
-fn insert_into_tree(current: &mut BTreeMap<String, TreeNode>, parts: &[&str], sha1: [u8; 20], mode: u32) {
+fn insert_into_tree(
+    current: &mut BTreeMap<String, TreeNode>,
+    parts: &[&str],
+    sha1: [u8; 20],
+    mode: u32,
+) {
     if parts.is_empty() {
         return;
     }
@@ -319,7 +321,8 @@ fn insert_into_tree(current: &mut BTreeMap<String, TreeNode>, parts: &[&str], sh
         let next_node = current
             .entry(name)
             .or_insert_with(|| TreeNode::Tree(BTreeMap::new()));
-        if let TreeNode::Tree(ref mut next_tree) = next_node {
+
+        if let TreeNode::Tree(next_tree) = next_node {
             insert_into_tree(next_tree, &parts[1..], sha1, mode);
         }
     }
@@ -337,7 +340,7 @@ fn write_tree_node(node: &TreeNode) -> io::Result<[u8; 20]> {
                     TreeNode::Blob(_, mode) => format!("{:o}", mode),
                     TreeNode::Tree(_) => "40000".to_string(),
                 };
-                
+
                 write!(tree_body, "{} {}", mode_str, name)?;
                 tree_body.push(0);
                 tree_body.extend_from_slice(&child_sha1);
@@ -357,7 +360,7 @@ fn hash_and_store_object(object_content: &[u8]) -> io::Result<[u8; 20]> {
     let hashed_blob = Sha1::digest(object_content);
     let hashed_bytes: [u8; 20] = hashed_blob.into();
     let hash_hex = encode(hashed_blob);
-    
+
     let (dir_part, file_part) = hash_hex.split_at(2);
     let target_dir = format!(".git/objects/{}", dir_part);
     let target_file = format!("{}/{}", target_dir, file_part);
@@ -370,7 +373,6 @@ fn hash_and_store_object(object_content: &[u8]) -> io::Result<[u8; 20]> {
 
     Ok(hashed_bytes)
 }
-
 
 pub fn commit(message: &str, author: &str, email: &str) -> io::Result<[u8; 20]> {
     let tree_sha1 = write_tree()?;
@@ -395,9 +397,17 @@ pub fn commit(message: &str, author: &str, email: &str) -> io::Result<[u8; 20]> 
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    
-    writeln!(commit_body, "author {} <{}> {} +0000", author, email, timestamp)?;
-    writeln!(commit_body, "committer {} <{}> {} +0000", author, email, timestamp)?;
+
+    writeln!(
+        commit_body,
+        "author {} <{}> {} +0000",
+        author, email, timestamp
+    )?;
+    writeln!(
+        commit_body,
+        "committer {} <{}> {} +0000",
+        author, email, timestamp
+    )?;
     writeln!(commit_body)?;
     writeln!(commit_body, "{}", message)?;
 

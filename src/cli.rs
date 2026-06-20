@@ -5,7 +5,7 @@ pub enum Command {
     Init,
     Add { filepath: String },
     Commit { message: String },
-    Push { remote_url: String }, // ⭐ Updated variant to hold the target string
+    Push,
     Help,
 }
 
@@ -45,13 +45,7 @@ pub fn parse_args() -> Result<Command, String> {
 
             Ok(Command::Commit { message })
         }
-        // ⭐ Updated match arm to safely extract the destination string
-        "push" => {
-            let remote_url = args
-                .next()
-                .ok_or("Error: 'push' requires a remote URL or local path. Usage: rugit push <remote_url_or_path>")?;
-            Ok(Command::Push { remote_url })
-        }
+        "push" => Ok(Command::Push),
         "-h" | "--help" | "help" => Ok(Command::Help),
         unknown => Err(format!(
             "Error: Unknown command '{}'. Run 'rugit help' for usage.",
@@ -69,11 +63,11 @@ USAGE:
     rugit <SUBCOMMAND> [OPTIONS]
 
 SUBCOMMANDS:
-    init                Initialize a new local plumbing repository (.git/)
-    add <file>          Stage a file to the index area
-    commit -m "<msg>"   Commit staged changes to the object history
-    push <destination>  Negotiate with a remote host and push upstream
-    help, -h, --help    Print this help information
+    init              Initialize a new local plumbing repository (.git/)
+    add <file>        Stage a file to the index area
+    commit -m "<msg>" Commit staged changes to the object history
+    push              Negotiate with a remote host and push upstream
+    help, -h, --help  Print this help information
 "#
     );
 }

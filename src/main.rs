@@ -1,4 +1,4 @@
-#![feature(windows_by_handle)]
+#![cfg_attr(target_os = "windows", feature(windows_by_handle))]
 pub mod base;
 pub mod cli;
 pub mod network;

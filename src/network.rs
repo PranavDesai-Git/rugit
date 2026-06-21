@@ -41,7 +41,6 @@ fn resolve_credentials() -> (String, String) {
 }
 
 
-
 /// Pushes the custom repository trinity directly to a remote GitHub repository over HTTPS.
 pub fn test_push_connection(remote_url: &str) {
     // Dynamically fetch credentials based on who is running the tool
@@ -113,3 +112,4 @@ pub fn test_push_connection(remote_url: &str) {
     println!("{}", final_response);
     println!("-------------------------------");
 }
+

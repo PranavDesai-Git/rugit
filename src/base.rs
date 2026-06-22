@@ -476,3 +476,78 @@ pub fn get_remote_url(name: &str) -> io::Result<String> {
         format!("Remote '{}' not configured in .git/config", name),
     ))
 }
+
+pub fn get_user_identity() -> (String, String) {
+    let mut name = std::env::var("GIT_AUTHOR_NAME").unwrap_or_else(|_| "Unknown".to_string());
+    let mut email =
+        std::env::var("GIT_AUTHOR_EMAIL").unwrap_or_else(|_| "unknown@example.com".to_string());
+
+    if let Ok(config_content) = fs::read_to_string(".git/config") {
+        let mut in_user_section = false;
+        for line in config_content.lines() {
+            let trimmed = line.trim();
+            if trimmed == "[user]" {
+                in_user_section = true;
+                continue;
+            }
+            if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                in_user_section = false;
+            }
+
+            if in_user_section {
+                if trimmed.starts_with("name =") {
+                    name = trimmed.strip_prefix("name =").unwrap().trim().to_string();
+                } else if trimmed.starts_with("email =") {
+                    email = trimmed.strip_prefix("email =").unwrap().trim().to_string();
+                }
+            }
+        }
+    }
+
+    (name, email)
+}
+
+pub fn set_user_config(key: &str, value: &str) -> io::Result<()> {
+    let config_path = ".git/config";
+    let config_content = fs::read_to_string(config_path)?;
+    let mut lines: Vec<String> = config_content.lines().map(|s| s.to_string()).collect();
+
+    let mut user_section_idx = None;
+    let mut key_idx = None;
+    let mut next_section_idx = None;
+
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed == "[user]" {
+            user_section_idx = Some(i);
+        } else if user_section_idx.is_some() && next_section_idx.is_none() {
+            if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                next_section_idx = Some(i);
+            } else if trimmed.starts_with(&format!("{} =", key)) {
+                key_idx = Some(i);
+            }
+        }
+    }
+
+    match (user_section_idx, key_idx) {
+        (Some(_), Some(k_idx)) => {
+            lines[k_idx] = format!("\t{} = {}", key, value);
+        }
+        (Some(u_idx), None) => {
+            lines.insert(u_idx + 1, format!("\t{} = {}", key, value));
+        }
+        (None, None) => {
+            lines.push("".to_string());
+            lines.push("[user]".to_string());
+            lines.push(format!("\t{} = {}", key, value));
+        }
+        _ => {}
+    }
+
+    let mut updated_content = lines.join("\n");
+    updated_content.push('\n');
+    fs::write(config_path, updated_content)?;
+
+    log::info!("Config set: user.{} = {}", key, value);
+    Ok(())
+}

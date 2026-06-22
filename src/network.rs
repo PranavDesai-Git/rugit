@@ -1,6 +1,7 @@
 use std::io::{Read, Write};
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue};
+use std::fs;
 
 // Helper to format strings into Git's pkt-line format
 fn encode_pkt_line(payload: &str) -> Vec<u8> {
@@ -11,20 +12,16 @@ fn encode_pkt_line(payload: &str) -> Vec<u8> {
     result
 }
 
-
 /// Resolves user credentials dynamically via Environment Variables or Terminal Prompt
 fn resolve_credentials() -> (String, String) {
-    // 1. Check for standard environment variables first
     if let (Ok(user), Ok(token)) = (std::env::var("RUGIT_USER"), std::env::var("RUGIT_TOKEN")) {
         return (user, token);
     }
-    // Backup check for standard GitHub environment variables
     if let (Ok(user), Ok(token)) = (std::env::var("GITHUB_USER"), std::env::var("GITHUB_TOKEN")) {
         return (user, token);
     }
 
-    // 2. Fallback to interactive terminal input if variables don't exist
-    println!("💡 Hint: Set RUGIT_USER and RUGIT_TOKEN env variables to skip this prompt.");
+    println!("Hint: Set RUGIT_USER and RUGIT_TOKEN env variables to skip this prompt.");
     
     print!("Enter GitHub Username: ");
     std::io::stdout().flush().unwrap();
@@ -36,30 +33,66 @@ fn resolve_credentials() -> (String, String) {
     let mut token = String::new();
     std::io::stdin().read_line(&mut token).expect("Failed to read token");
 
-    // Clean up trailing newlines from terminal input (\r\n on Windows or \n on Linux)
     (username.trim().to_string(), token.trim().to_string())
 }
 
+fn get_local_head_commit() -> Option<[u8; 20]> {
+    if let Ok(head_content) = fs::read_to_string(".git/HEAD") {
+        let ref_path = head_content.trim().trim_start_matches("ref: ").to_string();
+        let full_ref_path = format!(".git/{}", ref_path);
+        if let Ok(commit_hex) = fs::read_to_string(full_ref_path) {
+            let mut sha1 = [0u8; 20];
+            if hex::decode_to_slice(commit_hex.trim(), &mut sha1).is_ok() {
+                return Some(sha1);
+            }
+        }
+    }
+    None
+}
 
-/// Pushes the custom repository trinity directly to a remote GitHub repository over HTTPS.
+fn parse_remote_branch_sha(discovery_body: &str, target_branch: &str) -> String {
+    let zero_oid = "0000000000000000000000000000000000000000".to_string();
+    
+    for line in discovery_body.lines() {
+        if line.contains('#') || line.is_empty() {
+            continue;
+        }
+
+        let clean_line = line.trim().split('\0').next().unwrap_or(line);
+        let parts: Vec<&str> = clean_line.split_whitespace().collect();
+        
+        if parts.len() >= 2 {
+            let ref_name = parts[1];
+            if ref_name == target_branch {
+                let sha = parts[0];
+                if sha.len() >= 40 {
+                    return sha[sha.len() - 40..].to_string();
+                }
+            }
+        }
+    }
+    zero_oid
+}
+
 pub fn test_push_connection(remote_url: &str) {
-    // Dynamically fetch credentials based on who is running the tool
     let (username, github_token) = resolve_credentials();
 
     if username.is_empty() || github_token.is_empty() {
         panic!("Error: Username or Token cannot be empty!");
     }
 
+    let local_commit_sha1 = get_local_head_commit().expect(
+        "Error: Could not read local HEAD. Make sure you have committed something using base::commit first!"
+    );
+
     let client = Client::new();
     let base_url = remote_url.trim_end_matches('/');
+    let target_branch = "refs/heads/main";
 
-    // =========================================================================
-    // PHASE 1: DISCOVERY (GET Request)
-    // =========================================================================
     let discovery_url = format!("{}/info/refs?service=git-receive-pack", base_url);
     println!("\n1. Probing remote GitHub endpoint via GET...");
 
-    let res = client.get(&discovery_url)
+    let mut res = client.get(&discovery_url)
         .basic_auth(&username, Some(&github_token))
         .send()
         .expect("Failed to execute discovery GET request");
@@ -68,18 +101,20 @@ pub fn test_push_connection(remote_url: &str) {
         panic!("GitHub authentication failed or repository not found! Status: {}", res.status());
     }
 
-    println!("Successfully authenticated as '{}'! Server responded with 200 OK.\n", username);
+    let mut discovery_body = String::new();
+    res.read_to_string(&mut discovery_body).unwrap();
+    println!("Successfully authenticated as '{}'! Received remote ref listings.", username);
 
-    // =========================================================================
-    // PHASE 2: PACKFILE GENERATION & RPC STREAM (POST Request)
-    // =========================================================================
-    println!("2. Generating the complete packfile trinity (Blob -> Tree -> Commit)...");
-    let (pack_data, commit_hex_sha) = crate::pack::create_final_packfile();
+    let remote_old_oid = parse_remote_branch_sha(&discovery_body, target_branch);
+    println!("Remote target state for {} is currently: {}", target_branch, remote_old_oid);
+
+    println!("\n2. Dynamically tracing and gathering packfile objects from local database...");
+    
+    let (pack_data, local_commit_hex) = crate::pack::create_dynamic_packfile(&local_commit_sha1)
+        .expect("Failed to dynamically traverse and generate packfile");
 
     let mut post_body = Vec::new();
-    let zero_oid = "0000000000000000000000000000000000000000";
-    let branch = "refs/heads/master";
-    let update_msg = format!("{} {} {}\0report-status\n", zero_oid, commit_hex_sha, branch);
+    let update_msg = format!("{} {} {}\0report-status\n", remote_old_oid, local_commit_hex, target_branch);
     
     post_body.extend_from_slice(&encode_pkt_line(&update_msg));
     post_body.extend_from_slice(b"0000"); 
@@ -96,7 +131,7 @@ pub fn test_push_connection(remote_url: &str) {
     );
 
     let rpc_url = format!("{}/git-receive-pack", base_url);
-    println!("3. Uploading payload to GitHub via POST ({} bytes total)...", post_body.len());
+    println!("3. Uploading real repository history via POST ({} bytes total)...", post_body.len());
 
     let mut response = client.post(&rpc_url)
         .headers(headers)
@@ -112,4 +147,3 @@ pub fn test_push_connection(remote_url: &str) {
     println!("{}", final_response);
     println!("-------------------------------");
 }
-

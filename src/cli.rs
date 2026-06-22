@@ -9,6 +9,7 @@ pub enum Command {
     Push { remote_name_or_url: Option<String> },
     ConfigSet { key: String, value: String },
     BranchCreate { name: String },
+    Switch { name: String },
     Help,
 }
 
@@ -80,6 +81,10 @@ pub fn parse_args() -> Result<Command, String> {
                 .ok_or("Error: 'branch' requires a name. Usage: rugit branch <branch-name>")?;
             Ok(Command::BranchCreate { name })
         }
+        "switch" => {
+            let name = args.next().ok_or("Error: 'switch' requires a branch name. Usage: rugit switch <branch-name>")?;
+            Ok(Command::Switch { name })
+        }
         "push" => {
             let remote_name_or_url = args.next();
             Ok(Command::Push { remote_name_or_url })
@@ -104,6 +109,7 @@ SUBCOMMANDS:
     config <key> <value>        Set configuration settings (e.g., user.name, user.email)
     remote add <name> <url>     Track a new remote destination repository
     branch <name>               Creates a new branch from current HEAD
+    switch <name>               Switch your current HEAD to an existing branch
     push [destination]          Negotiate with remote host and push upstream (defaults to origin)
     help, -h, --help            Print this help information
 "#

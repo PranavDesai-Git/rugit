@@ -592,3 +592,24 @@ pub fn create_branch(name: &str) -> io::Result<()> {
     println!("Branch '{}' created successfully.", name);
     Ok(())
 }
+
+pub fn switch_branch(name: &str) -> io::Result<()> {
+    let target_ref_path = format!("refs/heads/{}", name);
+    let full_ref_path = format!(".git/{}", target_ref_path);
+
+    if !Path::new(&full_ref_path).exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!(
+                "Branch '{}' does not exist. Create it first using 'rugit branch {}'",
+                name, name
+            ),
+        ));
+    }
+
+    let head_content = format!("ref: {}\n", target_ref_path);
+    fs::write(".git/HEAD", head_content)?;
+
+    println!("Switched to branch '{}'", name);
+    Ok(())
+}

@@ -8,6 +8,7 @@ pub enum Command {
     RemoteAdd { name: String, url: String },
     Push { remote_name_or_url: Option<String> },
     ConfigSet { key: String, value: String },
+    BranchCreate { name: String },
     Help,
 }
 
@@ -73,6 +74,12 @@ pub fn parse_args() -> Result<Command, String> {
                 value,
             })
         }
+        "branch" => {
+            let name = args
+                .next()
+                .ok_or("Error: 'branch' requires a name. Usage: rugit branch <branch-name>")?;
+            Ok(Command::BranchCreate { name })
+        }
         "push" => {
             let remote_name_or_url = args.next();
             Ok(Command::Push { remote_name_or_url })
@@ -96,6 +103,7 @@ SUBCOMMANDS:
     commit -m "<msg>"           Commit staged changes to the object history
     config <key> <value>        Set configuration settings (e.g., user.name, user.email)
     remote add <name> <url>     Track a new remote destination repository
+    branch <name>               Creates a new branch from current HEAD
     push [destination]          Negotiate with remote host and push upstream (defaults to origin)
     help, -h, --help            Print this help information
 "#

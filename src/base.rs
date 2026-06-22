@@ -7,6 +7,7 @@ use std::fs;
 use std::io;
 use std::io::Read;
 use std::io::Write;
+use std::path::Path;
 use std::time::UNIX_EPOCH;
 
 pub fn init() {
@@ -549,5 +550,45 @@ pub fn set_user_config(key: &str, value: &str) -> io::Result<()> {
     fs::write(config_path, updated_content)?;
 
     log::info!("Config set: user.{} = {}", key, value);
+    Ok(())
+}
+
+pub fn get_current_branch_ref() -> io::Result<String> {
+    let head_content = fs::read_to_string(".git/HEAD")?;
+    let line = head_content.lines().next().unwrap_or("").trim();
+
+    if let Some(ref_path) = line.strip_prefix("ref:") {
+        Ok(ref_path.trim().to_string())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "HEAD is detached or invalid",
+        ))
+    }
+}
+
+pub fn create_branch(name: &str) -> io::Result<()> {
+    let current_ref_path = get_current_branch_ref()?;
+    let current_commit_path = format!(".git/{}", current_ref_path);
+
+    let commit_hash = if Path::new(&current_commit_path).exists() {
+        fs::read_to_string(&current_commit_path)?
+    } else {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Cannot branch: No commits exist yet on the current branch.",
+        ));
+    };
+
+    let new_ref_path = format!(".git/refs/heads/{}", name);
+    if Path::new(&new_ref_path).exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("Branch '{}' already exists.", name),
+        ));
+    }
+
+    fs::write(new_ref_path, commit_hash)?;
+    println!("Branch '{}' created successfully.", name);
     Ok(())
 }

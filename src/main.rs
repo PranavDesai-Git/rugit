@@ -52,6 +52,12 @@ fn main() {
                     std::process::exit(1);
                 }
             }
+            cli::Command::Switch { name } => {
+                if let Err(e) = base::switch_branch(&name) {
+                    eprintln!("Fatal error switching branch: {}", e);
+                    std::process::exit(1);
+                }
+            }
             cli::Command::Push { remote_name_or_url } => {
                 let active_branch_ref = match base::get_current_branch_ref() {
                     Ok(r) => r,

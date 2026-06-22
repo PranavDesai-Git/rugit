@@ -22,7 +22,9 @@ fn main() {
                 let (author, email) = base::get_user_identity();
 
                 if email == "unknown@example.com" {
-                    println!("Warning: Commit email is unset. GitHub won't recognize this account.");
+                    println!(
+                        "Warning: Commit email is unset. GitHub won't recognize this account."
+                    );
                     println!("Hint: Run 'rugit config user.email <email>' to fix this.");
                 }
 
@@ -44,7 +46,21 @@ fn main() {
                 }
                 println!("Successfully configured user.{}!", key);
             }
+            cli::Command::BranchCreate { name } => {
+                if let Err(e) = base::create_branch(&name) {
+                    eprintln!("Fatal error creating branch: {}", e);
+                    std::process::exit(1);
+                }
+            }
             cli::Command::Push { remote_name_or_url } => {
+                let active_branch_ref = match base::get_current_branch_ref() {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!("Fatal: Could not determine active branch from HEAD: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+
                 let target_url = match remote_name_or_url {
                     Some(val) => {
                         if val.starts_with("http://") || val.starts_with("https://") {
@@ -59,21 +75,19 @@ fn main() {
                             }
                         }
                     }
-                    None => {
-                        match base::get_remote_url("origin") {
-                            Ok(url) => url,
-                            Err(_) => {
-                                {
-                                    eprintln!("Error: No remote specified, and default 'origin' is not configured.");
-                                    eprintln!("Run: rugit remote add origin <url>");
-                                    std::process::exit(1);
-                                }
-                            }
+                    None => match base::get_remote_url("origin") {
+                        Ok(url) => url,
+                        Err(_) => {
+                            eprintln!(
+                                "Error: No remote specified, and default 'origin' is not configured."
+                            );
+                            eprintln!("Run: rugit remote add origin <url>");
+                            std::process::exit(1);
                         }
-                    }
+                    },
                 };
 
-                network::test_push_connection(&target_url);
+                network::push_remote(&target_url, &active_branch_ref);
             }
             cli::Command::Help => {
                 cli::print_help();

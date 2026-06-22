@@ -74,7 +74,8 @@ fn parse_remote_branch_sha(discovery_body: &str, target_branch: &str) -> String 
     zero_oid
 }
 
-pub fn test_push_connection(remote_url: &str) {
+/// Executes the full smart HTTP push protocol negotiation sequence for a specific branch ref
+pub fn push_remote(remote_url: &str, branch_ref: &str) {
     let (username, github_token) = resolve_credentials();
 
     if username.is_empty() || github_token.is_empty() {
@@ -87,7 +88,9 @@ pub fn test_push_connection(remote_url: &str) {
 
     let client = Client::new();
     let base_url = remote_url.trim_end_matches('/');
-    let target_branch = "refs/heads/main";
+    
+    // Dynamically track whatever branch ref was evaluated by main.rs
+    let target_branch = branch_ref;
 
     let discovery_url = format!("{}/info/refs?service=git-receive-pack", base_url);
     println!("\n1. Probing remote GitHub endpoint via GET...");

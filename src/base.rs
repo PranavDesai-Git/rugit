@@ -427,3 +427,52 @@ pub fn commit(message: &str, author: &str, email: &str) -> io::Result<[u8; 20]> 
     log::info!("Committed successfully: {}", commit_hex);
     Ok(commit_sha1)
 }
+
+pub fn add_remote(name: &str, url: &str) -> io::Result<()> {
+    let config_path = ".git/config";
+    let mut config_content = fs::read_to_string(config_path)?;
+
+    let remote_section = format!("[remote \"{}\"]", name);
+    if config_content.contains(&remote_section) {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("Remote '{}' already exists!", name),
+        ));
+    }
+
+    config_content.push_str(&format!(
+        "\n[remote \"{}\"]\n\turl = {}\n\tfetch = +refs/heads/*:refs/remotes/{}/*\n",
+        name, url, name
+    ));
+
+    fs::write(config_path, config_content)?;
+    log::info!("Remote '{}' added successfully.", name);
+    Ok(())
+}
+
+pub fn get_remote_url(name: &str) -> io::Result<String> {
+    let config_content = fs::read_to_string(".git/config")?;
+    let target_section = format!("[remote \"{}\"]", name);
+
+    let mut in_section = false;
+    for line in config_content.lines() {
+        let trimmed = line.trim();
+        if trimmed == target_section {
+            in_section = true;
+            continue;
+        }
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            in_section = false;
+        }
+
+        if in_section && trimmed.starts_with("url =") {
+            let url = trimmed.strip_prefix("url =").unwrap().trim();
+            return Ok(url.to_string());
+        }
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        format!("Remote '{}' not configured in .git/config", name),
+    ))
+}

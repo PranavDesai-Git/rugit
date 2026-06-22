@@ -5,7 +5,7 @@ pub mod network;
 pub mod pack;
 
 fn main() {
-    env_logger::init(); 
+    env_logger::init();
 
     match cli::parse_args() {
         Ok(command) => match command {
@@ -21,7 +21,7 @@ fn main() {
             cli::Command::Commit { message } => {
                 let author = "host0";
                 let email = "host0@host0";
-                
+
                 if let Err(e) = base::commit(&message, author, email) {
                     eprintln!("Fatal error during commit: {}", e);
                     std::process::exit(1);

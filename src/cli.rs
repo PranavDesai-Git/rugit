@@ -5,7 +5,8 @@ pub enum Command {
     Init,
     Add { filepath: String },
     Commit { message: String },
-    Push { remote_url: String }, 
+    RemoteAdd { name: String, url: String },
+    Push { remote_name_or_url: Option<String> }, 
     Help,
 }
 
@@ -45,11 +46,31 @@ pub fn parse_args() -> Result<Command, String> {
 
             Ok(Command::Commit { message })
         }
-        "push" => {
-            let remote_url = args
+        "remote" => {
+            let sub_action = args
                 .next()
-                .ok_or("Error: 'push' requires a remote URL or local path. Usage: rugit push <remote_url_or_path>")?;
-            Ok(Command::Push { remote_url })
+                .ok_or("Error: 'remote' requires an action. Usage: rugit remote add <name> <url>")?;
+
+            if sub_action != "add" {
+                return Err(format!(
+                    "Error: Unknown remote action '{}'. Did you mean 'add'?",
+                    sub_action
+                ));
+            }
+
+            let name = args
+                .next()
+                .ok_or("Error: 'remote add' requires a name. Usage: rugit remote add <name> <url>")?;
+            
+            let url = args
+                .next()
+                .ok_or("Error: 'remote add' requires a URL. Usage: rugit remote add <name> <url>")?;
+
+            Ok(Command::RemoteAdd { name, url })
+        }
+        "push" => {
+            let remote_name_or_url = args.next();
+            Ok(Command::Push { remote_name_or_url })
         }
         "-h" | "--help" | "help" => Ok(Command::Help),
         unknown => Err(format!(
@@ -68,11 +89,12 @@ USAGE:
     rugit <SUBCOMMAND> [OPTIONS]
 
 SUBCOMMANDS:
-    init                Initialize a new local plumbing repository (.git/)
-    add <file>          Stage a file to the index area
-    commit -m "<msg>"   Commit staged changes to the object history
-    push <destination>  Negotiate with a remote host and push upstream
-    help, -h, --help    Print this help information
+    init                      Initialize a new local plumbing repository (.git/)
+    add <file>                Stage a file to the index area
+    commit -m "<msg>"         Commit staged changes to the object history
+    remote add <name> <url>   Track a new remote destination repository
+    push [destination]        Negotiate with remote host and push upstream (defaults to origin)
+    help, -h, --help          Print this help information
 "#
     );
 }

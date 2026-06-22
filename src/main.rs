@@ -27,8 +27,41 @@ fn main() {
                     std::process::exit(1);
                 }
             }
-            cli::Command::Push { remote_url } => {
-                network::test_push_connection(&remote_url);
+            cli::Command::RemoteAdd { name, url } => {
+                if let Err(e) = base::add_remote(&name, &url) {
+                    eprintln!("Fatal error configuring remote: {}", e);
+                    std::process::exit(1);
+                }
+            }
+            cli::Command::Push { remote_name_or_url } => {
+                // Determine our target url based on optional input
+                let target_url = match remote_name_or_url {
+                    Some(val) => {
+                        if val.starts_with("http://") || val.starts_with("https://") {
+                            val
+                        } else {
+                            match base::get_remote_url(&val) {
+                                Ok(url) => url,
+                                Err(e) => {
+                                    eprintln!("Fatal error resolving remote name '{}': {}", val, e);
+                                    std::process::exit(1);
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        match base::get_remote_url("origin") {
+                            Ok(url) => url,
+                            Err(_) => {
+                                eprintln!("Error: No remote specified, and default 'origin' is not configured.");
+                                eprintln!("Run: rugit remote add origin <url>");
+                                std::process::exit(1);
+                            }
+                        }
+                    }
+                };
+
+                network::test_push_connection(&target_url);
             }
             cli::Command::Help => {
                 cli::print_help();

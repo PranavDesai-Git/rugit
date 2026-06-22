@@ -5,7 +5,7 @@ pub enum Command {
     Init,
     Add { filepath: String },
     Commit { message: String },
-    Push { remote_url: String }, // ⭐ Updated variant to hold the target string
+    Push { remote_url: String }, 
     Help,
 }
 
@@ -45,7 +45,6 @@ pub fn parse_args() -> Result<Command, String> {
 
             Ok(Command::Commit { message })
         }
-        // ⭐ Updated match arm to safely extract the destination string
         "push" => {
             let remote_url = args
                 .next()

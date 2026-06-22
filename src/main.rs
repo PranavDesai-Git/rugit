@@ -1,6 +1,8 @@
-#![feature(windows_by_handle)]
+#![cfg_attr(target_os = "windows", feature(windows_by_handle))]
 pub mod base;
 pub mod cli;
+pub mod network;
+pub mod pack;
 
 fn main() {
     env_logger::init(); 
@@ -25,8 +27,8 @@ fn main() {
                     std::process::exit(1);
                 }
             }
-            cli::Command::Push => {
-                println!("Network layer coming up next");
+            cli::Command::Push { remote_url } => {
+                network::test_push_connection(&remote_url);
             }
             cli::Command::Help => {
                 cli::print_help();
